@@ -220,20 +220,18 @@ set deviceconfig setting ssh ciphersuites kex-algos diffie-hellman-group14-sha25
 # =============================================================================
 # STEP 5 — LOG FORWARDING PROFILE (CONFIGURE MODE)
 # =============================================================================
-# If you have a Splunk instance on the network, forward logs to it.
-# Replace SPLUNK-IP with actual IP.
-#
-# set log-settings syslog SPLUNK-FORWARD server SPLUNK transport UDP
-# set log-settings syslog SPLUNK-FORWARD server SPLUNK port 514
-# set log-settings syslog SPLUNK-FORWARD server SPLUNK server <SPLUNK-IP>
-# set log-settings syslog SPLUNK-FORWARD server SPLUNK format BSD
-# set log-settings syslog SPLUNK-FORWARD server SPLUNK facility LOG_USER
-#
-# Create a log forwarding profile and attach it to rules:
-# set log-settings profiles FORWARD-ALL match-list TRAFFIC-FWD send-syslog SPLUNK-FORWARD
-# set log-settings profiles FORWARD-ALL match-list TRAFFIC-FWD log-type traffic
-# set log-settings profiles FORWARD-ALL match-list THREAT-FWD send-syslog SPLUNK-FORWARD
-# set log-settings profiles FORWARD-ALL match-list THREAT-FWD log-type threat
+# Splunk instance at 172.20.242.20 — forwarding on TCP/9997
+set log-settings syslog SPLUNK-FORWARD server SPLUNK transport TCP
+set log-settings syslog SPLUNK-FORWARD server SPLUNK port 9997
+set log-settings syslog SPLUNK-FORWARD server SPLUNK server 172.20.242.20
+set log-settings syslog SPLUNK-FORWARD server SPLUNK format BSD
+set log-settings syslog SPLUNK-FORWARD server SPLUNK facility LOG_USER
+
+# Log forwarding profile — traffic and threat logs to Splunk
+set log-settings profiles FORWARD-ALL match-list TRAFFIC-FWD send-syslog SPLUNK-FORWARD
+set log-settings profiles FORWARD-ALL match-list TRAFFIC-FWD log-type traffic
+set log-settings profiles FORWARD-ALL match-list THREAT-FWD send-syslog SPLUNK-FORWARD
+set log-settings profiles FORWARD-ALL match-list THREAT-FWD log-type threat
 
 # =============================================================================
 # STEP 6 — COMMIT

@@ -62,6 +62,7 @@ set service svc-smtp      protocol tcp port 25
 set service svc-pop3      protocol tcp port 110
 set service svc-dns-tcp   protocol tcp port 53
 set service svc-dns-udp   protocol udp port 53
+set service svc-splunk    protocol tcp port 9997
 
 # =============================================================================
 # SECTION 4 — SECURITY POLICIES
@@ -190,6 +191,19 @@ set rulebase security rules RULE-08_IN_POP3 log-end yes
 set rulebase security rules RULE-08_IN_POP3 description "SCORED: POP3 → Fedora Webmail"
 
 # ------------------------------------------------------------------
+# RULE 08b — Inbound Splunk forwarder from Windows network (OUTSIDE → SPLUNK:9997)
+# ------------------------------------------------------------------
+set rulebase security rules RULE-08b_IN_SPLUNK from OUTSIDE
+set rulebase security rules RULE-08b_IN_SPLUNK to   INSIDE
+set rulebase security rules RULE-08b_IN_SPLUNK source any
+set rulebase security rules RULE-08b_IN_SPLUNK destination SPLUNK
+set rulebase security rules RULE-08b_IN_SPLUNK application any
+set rulebase security rules RULE-08b_IN_SPLUNK service svc-splunk
+set rulebase security rules RULE-08b_IN_SPLUNK action allow
+set rulebase security rules RULE-08b_IN_SPLUNK log-end yes
+set rulebase security rules RULE-08b_IN_SPLUNK description "Splunk forwarder inbound — Windows hosts → Splunk:9997"
+
+# ------------------------------------------------------------------
 # RULE 09 — DENY all other inbound
 # ------------------------------------------------------------------
 set rulebase security rules RULE-09_IN_DENY-ALL from OUTSIDE
@@ -266,6 +280,19 @@ set rulebase security rules RULE-14_OUT_DENY-ALL service any
 set rulebase security rules RULE-14_OUT_DENY-ALL action deny
 set rulebase security rules RULE-14_OUT_DENY-ALL log-end yes
 set rulebase security rules RULE-14_OUT_DENY-ALL description "DENY ALL egress — CALLBACK BLOCKER"
+
+# ------------------------------------------------------------------
+# RULE 15 — Splunk forwarder intra-zone (INSIDE → SPLUNK:9997)
+# ------------------------------------------------------------------
+set rulebase security rules RULE-15_INT_SPLUNK from INSIDE
+set rulebase security rules RULE-15_INT_SPLUNK to   INSIDE
+set rulebase security rules RULE-15_INT_SPLUNK source INTERNAL-NET
+set rulebase security rules RULE-15_INT_SPLUNK destination SPLUNK
+set rulebase security rules RULE-15_INT_SPLUNK application any
+set rulebase security rules RULE-15_INT_SPLUNK service svc-splunk
+set rulebase security rules RULE-15_INT_SPLUNK action allow
+set rulebase security rules RULE-15_INT_SPLUNK log-end yes
+set rulebase security rules RULE-15_INT_SPLUNK description "Splunk forwarder — INSIDE hosts → Splunk:9997"
 
 # =============================================================================
 # SECTION 5 — DEFAULT RULES & COMMIT

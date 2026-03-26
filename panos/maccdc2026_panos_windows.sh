@@ -51,6 +51,7 @@ set address WEB-SERVER    ip-netmask 172.20.240.101/32   description "Server 201
 set address FTP-SERVER    ip-netmask 172.20.240.104/32   description "Server 2022 FTP — FTP/TFTP/NTP scored"
 set address WIN-WKS       ip-netmask 172.20.240.100/32   description "Windows 11 workstation"
 set address INTERNAL-NET  ip-netmask 172.20.240.0/24     description "Windows FW inside network"
+set address SPLUNK        ip-netmask 172.20.242.20/32    description "Splunk — Linux network logging"
 
 # Scoring engine — get from White Team at drop flag:
 # set address SCORING-ENGINE  ip-netmask <IP>/32  description "Scoring engine — DO NOT BLOCK"
@@ -70,6 +71,7 @@ set service svc-ftp-passive  protocol tcp port 1024-65535
 set service svc-tftp         protocol udp port 69
 set service svc-ntp          protocol udp port 123
 set service svc-smtp         protocol tcp port 25
+set service svc-splunk       protocol tcp port 9997
 
 # =============================================================================
 # SECTION 4 — SECURITY POLICIES
@@ -247,6 +249,19 @@ set rulebase security rules RULE-12_OUT_WEB service [ svc-http svc-https ]
 set rulebase security rules RULE-12_OUT_WEB action allow
 set rulebase security rules RULE-12_OUT_WEB log-end yes
 set rulebase security rules RULE-12_OUT_WEB description "Outbound HTTP/HTTPS — monitor for C2"
+
+# ------------------------------------------------------------------
+# RULE 12b — Outbound Splunk forwarder (Windows hosts → Splunk:9997)
+# ------------------------------------------------------------------
+set rulebase security rules RULE-12b_OUT_SPLUNK from INSIDE
+set rulebase security rules RULE-12b_OUT_SPLUNK to   OUTSIDE
+set rulebase security rules RULE-12b_OUT_SPLUNK source INTERNAL-NET
+set rulebase security rules RULE-12b_OUT_SPLUNK destination SPLUNK
+set rulebase security rules RULE-12b_OUT_SPLUNK application any
+set rulebase security rules RULE-12b_OUT_SPLUNK service svc-splunk
+set rulebase security rules RULE-12b_OUT_SPLUNK action allow
+set rulebase security rules RULE-12b_OUT_SPLUNK log-end yes
+set rulebase security rules RULE-12b_OUT_SPLUNK description "Splunk forwarder — Windows hosts → Splunk:9997"
 
 # ------------------------------------------------------------------
 # RULE 13 — DENY ALL other egress — RED TEAM CALLBACK BLOCKER
