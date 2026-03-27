@@ -21,7 +21,7 @@ source /opt/vyatta/etc/functions/script-template
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Helper: print a clearly visible section banner
-section() {
+function section {
     echo ""
     echo "################################################################"
     echo "# $1"
@@ -29,7 +29,7 @@ section() {
 }
 
 # Helper: run a show command and label it
-run() {
+function run {
     echo ""
     echo ">>> $*"
     "$@" 2>&1 || echo "    [command returned error or not available]"
@@ -163,17 +163,18 @@ run show configuration commands
 
 # =============================================================================
 # SECTION 11: CONFIG DIFF (unauthorized changes since last save)
+# NOTE: 'compare saved' must be run manually inside a configure session.
+#       This section prints a reminder instead of risking script termination.
 # =============================================================================
 section "11 — CONFIG DIFF (running vs saved)"
-echo "  If output is empty = no uncommitted changes."
-echo "  Any diff here = something changed without being saved (or attacker modified)"
-
-# compare saved must be run from within configure context
-configure
+echo "  Run this manually to check for unauthorized changes:"
 echo ""
-echo ">>> compare saved"
-compare saved 2>&1 || echo "    [no diff or compare not available]"
-exit  # back to op mode
+echo "    configure"
+echo "    compare saved"
+echo "    exit"
+echo ""
+echo "  If output is empty = no uncommitted changes."
+echo "  Any diff = something changed without being saved (or attacker modified config)."
 
 run show system commit
 
