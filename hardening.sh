@@ -134,6 +134,9 @@ done
 
 # Splunk forwarder input
 iptables -A INPUT -p tcp --dport 9997 -j ACCEPT
+# Syslog input
+iptables -A INPUT -p tcp --dport 514 -j ACCEPT
+iptables -A INPUT -p udp --dport 514 -j ACCEPT
 
 iptables-save > /etc/iptables/rules.v4
 

@@ -236,6 +236,11 @@ iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
 iptables -A OUTPUT -p udp --dport 123 -j ACCEPT
 # SMTP outbound (mail delivery)
 iptables -A OUTPUT -p tcp --dport 25 -j ACCEPT
+# Splunk Universal Forwarder (outbound to Splunk indexer)
+iptables -A OUTPUT -p tcp --dport 9997 -j ACCEPT
+# Syslog (outbound to Splunk syslog listener)
+iptables -A OUTPUT -p tcp --dport 514 -j ACCEPT
+iptables -A OUTPUT -p udp --dport 514 -j ACCEPT
 
 # Log dropped
 iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "IPT-INPUT-DROP: "

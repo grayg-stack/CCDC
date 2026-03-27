@@ -72,6 +72,8 @@ set service svc-tftp         protocol udp port 69
 set service svc-ntp          protocol udp port 123
 set service svc-smtp         protocol tcp port 25
 set service svc-splunk       protocol tcp port 9997
+set service svc-syslog-tcp   protocol tcp port 514
+set service svc-syslog-udp   protocol udp port 514
 
 # =============================================================================
 # SECTION 4 — SECURITY POLICIES
@@ -262,6 +264,19 @@ set rulebase security rules RULE-12b_OUT_SPLUNK service svc-splunk
 set rulebase security rules RULE-12b_OUT_SPLUNK action allow
 set rulebase security rules RULE-12b_OUT_SPLUNK log-end yes
 set rulebase security rules RULE-12b_OUT_SPLUNK description "Splunk forwarder — Windows hosts → Splunk:9997"
+
+# ------------------------------------------------------------------
+# RULE 12c — Outbound Syslog (Windows hosts → Splunk:514 TCP+UDP)
+# ------------------------------------------------------------------
+set rulebase security rules RULE-12c_OUT_SYSLOG from INSIDE
+set rulebase security rules RULE-12c_OUT_SYSLOG to   OUTSIDE
+set rulebase security rules RULE-12c_OUT_SYSLOG source INTERNAL-NET
+set rulebase security rules RULE-12c_OUT_SYSLOG destination SPLUNK
+set rulebase security rules RULE-12c_OUT_SYSLOG application any
+set rulebase security rules RULE-12c_OUT_SYSLOG service [ svc-syslog-tcp svc-syslog-udp ]
+set rulebase security rules RULE-12c_OUT_SYSLOG action allow
+set rulebase security rules RULE-12c_OUT_SYSLOG log-end yes
+set rulebase security rules RULE-12c_OUT_SYSLOG description "Syslog — Windows hosts → Splunk:514 TCP+UDP"
 
 # ------------------------------------------------------------------
 # RULE 13 — DENY ALL other egress — RED TEAM CALLBACK BLOCKER

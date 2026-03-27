@@ -190,6 +190,11 @@ iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
 # Allow NTP
 iptables -A OUTPUT -p udp --dport 123 -j ACCEPT
+# Splunk Universal Forwarder (outbound to Splunk indexer)
+iptables -A OUTPUT -p tcp --dport 9997 -j ACCEPT
+# Syslog (outbound to Splunk syslog listener)
+iptables -A OUTPUT -p tcp --dport 514 -j ACCEPT
+iptables -A OUTPUT -p udp --dport 514 -j ACCEPT
 
 # Log dropped packets (rate-limited)
 iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "IPT-INPUT-DROP: "

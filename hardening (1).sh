@@ -319,6 +319,9 @@ iptables -A INPUT -p udp --dport 53  -j ACCEPT    # DNS UDP
 iptables -A INPUT -p tcp --dport 21  -j ACCEPT    # FTP
 iptables -A INPUT -p udp --dport 69  -j ACCEPT    # TFTP
 iptables -A INPUT -p udp --dport 123 -j ACCEPT    # NTP
+iptables -A INPUT -p tcp --dport 9997 -j ACCEPT   # Splunk forwarder receiving
+iptables -A INPUT -p tcp --dport 514  -j ACCEPT   # Syslog TCP
+iptables -A INPUT -p udp --dport 514  -j ACCEPT   # Syslog UDP
 
 # --- OUTPUT rules (egress whitelist — drops red team callbacks) ---
 iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
@@ -329,6 +332,9 @@ iptables -A OUTPUT -p tcp --dport 80  -j ACCEPT   # HTTP updates
 iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT   # HTTPS updates
 iptables -A OUTPUT -p udp --dport 123 -j ACCEPT   # NTP
 iptables -A OUTPUT -p tcp --dport 25  -j ACCEPT   # SMTP outbound (mail server)
+iptables -A OUTPUT -p tcp --dport 9997 -j ACCEPT  # Splunk Universal Forwarder outbound
+iptables -A OUTPUT -p tcp --dport 514  -j ACCEPT  # Syslog TCP outbound
+iptables -A OUTPUT -p udp --dport 514  -j ACCEPT  # Syslog UDP outbound
 # Everything else outbound: DROP — catches red team callbacks
 
 # --- Save rules persistently ---

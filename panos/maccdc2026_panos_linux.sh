@@ -62,7 +62,9 @@ set service svc-smtp      protocol tcp port 25
 set service svc-pop3      protocol tcp port 110
 set service svc-dns-tcp   protocol tcp port 53
 set service svc-dns-udp   protocol udp port 53
-set service svc-splunk    protocol tcp port 9997
+set service svc-splunk       protocol tcp port 9997
+set service svc-syslog-tcp   protocol tcp port 514
+set service svc-syslog-udp   protocol udp port 514
 
 # =============================================================================
 # SECTION 4 — SECURITY POLICIES
@@ -204,6 +206,19 @@ set rulebase security rules RULE-08b_IN_SPLUNK log-end yes
 set rulebase security rules RULE-08b_IN_SPLUNK description "Splunk forwarder inbound — Windows hosts → Splunk:9997"
 
 # ------------------------------------------------------------------
+# RULE 08c — Inbound Syslog from Windows network (OUTSIDE → SPLUNK:514 TCP+UDP)
+# ------------------------------------------------------------------
+set rulebase security rules RULE-08c_IN_SYSLOG from OUTSIDE
+set rulebase security rules RULE-08c_IN_SYSLOG to   INSIDE
+set rulebase security rules RULE-08c_IN_SYSLOG source any
+set rulebase security rules RULE-08c_IN_SYSLOG destination SPLUNK
+set rulebase security rules RULE-08c_IN_SYSLOG application any
+set rulebase security rules RULE-08c_IN_SYSLOG service [ svc-syslog-tcp svc-syslog-udp ]
+set rulebase security rules RULE-08c_IN_SYSLOG action allow
+set rulebase security rules RULE-08c_IN_SYSLOG log-end yes
+set rulebase security rules RULE-08c_IN_SYSLOG description "Syslog inbound — Windows hosts → Splunk:514 TCP+UDP"
+
+# ------------------------------------------------------------------
 # RULE 09 — DENY all other inbound
 # ------------------------------------------------------------------
 set rulebase security rules RULE-09_IN_DENY-ALL from OUTSIDE
@@ -293,6 +308,19 @@ set rulebase security rules RULE-15_INT_SPLUNK service svc-splunk
 set rulebase security rules RULE-15_INT_SPLUNK action allow
 set rulebase security rules RULE-15_INT_SPLUNK log-end yes
 set rulebase security rules RULE-15_INT_SPLUNK description "Splunk forwarder — INSIDE hosts → Splunk:9997"
+
+# ------------------------------------------------------------------
+# RULE 15b — Syslog intra-zone (INSIDE → SPLUNK:514 TCP+UDP)
+# ------------------------------------------------------------------
+set rulebase security rules RULE-15b_INT_SYSLOG from INSIDE
+set rulebase security rules RULE-15b_INT_SYSLOG to   INSIDE
+set rulebase security rules RULE-15b_INT_SYSLOG source INTERNAL-NET
+set rulebase security rules RULE-15b_INT_SYSLOG destination SPLUNK
+set rulebase security rules RULE-15b_INT_SYSLOG application any
+set rulebase security rules RULE-15b_INT_SYSLOG service [ svc-syslog-tcp svc-syslog-udp ]
+set rulebase security rules RULE-15b_INT_SYSLOG action allow
+set rulebase security rules RULE-15b_INT_SYSLOG log-end yes
+set rulebase security rules RULE-15b_INT_SYSLOG description "Syslog — INSIDE hosts → Splunk:514 TCP+UDP"
 
 # =============================================================================
 # SECTION 5 — DEFAULT RULES & COMMIT
