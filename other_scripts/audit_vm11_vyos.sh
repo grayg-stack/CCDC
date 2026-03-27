@@ -1,215 +1,245 @@
-#!/bin/bash
+#!/bin/vbash
 # =============================================================================
 # VM11 - VyOS Router AUDIT Script
-# MACCDC 2026 - PASTE INTO VyOS OPERATIONAL MODE TERMINAL
+# MACCDC 2026 - Run directly on VyOS: bash audit_vm11_vyos.sh
 # =============================================================================
 #
-# THESE ARE VyOS OPERATIONAL MODE COMMANDS, NOT BASH COMMANDS.
-# Paste these into the VyOS CLI (NOT configure mode).
-# Run these periodically to check for unauthorized changes.
-#
-# HOW TO USE:
-#   1. SSH into VyOS: ssh vyos@172.31.21.2
-#   2. You should be in operational mode ($ prompt, not # prompt)
-#   3. Paste sections one at a time and review output
+# USAGE:
+#   bash audit_vm11_vyos.sh              # print to terminal
+#   bash audit_vm11_vyos.sh | tee audit_$(date +%H%M).txt  # save timestamped copy
 #
 # NETWORK TOPOLOGY:
 #   eth0 (external/scoring): 172.31.21.2/29
 #   eth1 (Net1 to FW1):      172.16.101.1/24
 #   eth2 (Net2 to FW2):      172.16.102.1/24
+#
+# EXPECTED USERS: vyos, blueteam (anything else = flag it)
 # =============================================================================
 
+source /opt/vyatta/etc/functions/script-template
+
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+# Helper: print a clearly visible section banner
+section() {
+    echo ""
+    echo "################################################################"
+    echo "# $1"
+    echo "################################################################"
+}
+
+# Helper: run a show command and label it
+run() {
+    echo ""
+    echo ">>> $*"
+    "$@" 2>&1 || echo "    [command returned error or not available]"
+}
+
+echo "============================================================"
+echo " VM11 VyOS AUDIT — MACCDC 2026"
+echo " Run at: $TIMESTAMP"
+echo "============================================================"
 
 # =============================================================================
 # SECTION 1: SYSTEM STATUS
 # =============================================================================
-# >>> PASTE THIS <<<
+section "1 — SYSTEM STATUS"
 
-show version
-show system uptime
-show system memory
-show system cpu
+run show version
+run show system uptime
 
 # =============================================================================
-# SECTION 2: USER ACCOUNT AUDIT (CHECK FOR UNAUTHORIZED USERS)
+# SECTION 2: USER ACCOUNT AUDIT
+# FLAG: anything besides vyos and blueteam
 # =============================================================================
-# >>> PASTE THIS <<<
-# EXPECTED USERS: vyos, blueteam (and any team-created accounts)
-# FLAG anything else as suspicious!
+section "2 — USER ACCOUNT AUDIT"
+echo "  EXPECTED: vyos, blueteam only. Flag anything else."
 
-show system login
-show configuration commands | grep user
-show configuration commands | grep authentication
+run show system login
+
+# Pull user lines directly from config — more reliable than show system login
+echo ""
+echo ">>> show configuration commands | grep 'login user'"
+cli-shell-api showConfig | grep 'login user' 2>/dev/null || \
+    /bin/cli-shell-api showCfg 2>/dev/null | grep 'login user' || \
+    echo "    [could not retrieve config — try manually: show configuration commands | grep user]"
 
 # =============================================================================
 # SECTION 3: INTERFACE AUDIT
+# FLAG: wrong IPs, extra interfaces, any interface DOWN
 # =============================================================================
-# >>> PASTE THIS <<<
-# VERIFY:
-#   eth0: 172.31.21.2/29  (external/scoring)
-#   eth1: 172.16.101.1/24 (Net1 to FW1)
-#   eth2: 172.16.102.1/24 (Net2 to FW2)
-# FLAG any extra interfaces, changed IPs, or interfaces in DOWN state
+section "3 — INTERFACE AUDIT"
+echo "  EXPECTED:"
+echo "    eth0: 172.31.21.2/29  (external/scoring)"
+echo "    eth1: 172.16.101.1/24 (Net1 to FW1)"
+echo "    eth2: 172.16.102.1/24 (Net2 to FW2)"
 
-show interfaces
-show interfaces ethernet detail
+run show interfaces
+run show interfaces ethernet detail
 
 # =============================================================================
 # SECTION 4: ROUTING TABLE AUDIT
+# FLAG: unexpected routes (could be route injection)
 # =============================================================================
-# >>> PASTE THIS <<<
-# EXPECTED ROUTES:
-#   172.31.21.0/29   - directly connected (eth0)
-#   172.16.101.0/24  - directly connected (eth1)
-#   172.16.102.0/24  - directly connected (eth2)
-#   172.20.242.0/24  - via 172.16.101.254 (static to FW1 inside)
-#   172.20.240.0/24  - via 172.16.102.254 (static to FW2 inside)
-#   0.0.0.0/0        - default route
-# FLAG any unexpected routes (could indicate route injection attack)
+section "4 — ROUTING TABLE AUDIT"
+echo "  EXPECTED ROUTES:"
+echo "    0.0.0.0/0        - default (via scoring gateway)"
+echo "    172.31.21.0/29   - directly connected, eth0"
+echo "    172.16.101.0/24  - directly connected, eth1"
+echo "    172.16.102.0/24  - directly connected, eth2"
+echo "    172.20.242.0/24  - via 172.16.101.254 (FW1 inside)"
+echo "    172.20.240.0/24  - via 172.16.102.254 (FW2 inside)"
 
-show ip route
-show ip route summary
-show configuration commands | grep route
+run show ip route
+run show ip route summary
 
 # =============================================================================
 # SECTION 5: FIREWALL AUDIT
+# FLAG: missing rules, unexpected allow-all, modified defaults
 # =============================================================================
-# >>> PASTE THIS <<<
+section "5 — FIREWALL AUDIT"
 
-show firewall
-show firewall summary
-show firewall statistics
-
-# VyOS 1.4.x specific
-show firewall ipv4 input filter
-show firewall ipv4 forward filter
-show firewall ipv4 output filter
-
-# VyOS 1.3.x fallback
-show firewall name WAN-LOCAL
-show firewall name TRANSIT
-
-# Check full firewall config
-show configuration commands | grep firewall
+run show firewall
+run show firewall summary
+run show firewall statistics
+run show firewall ipv4 input filter
+run show firewall ipv4 forward filter
+run show firewall ipv4 output filter
 
 # =============================================================================
-# SECTION 6: NAT RULES AUDIT (CRITICAL FOR SCORED SERVICES)
+# SECTION 6: NAT RULES AUDIT
+# FLAG: missing or modified rules — will break scored services
 # =============================================================================
-# >>> PASTE THIS <<<
-# NAT rules route external traffic to internal servers.
-# If these are deleted or changed, scored services WILL FAIL.
+section "6 — NAT RULES AUDIT (CRITICAL — missing rules = service failure)"
 
-show nat destination rules
-show nat source rules
-show configuration commands | grep nat
+run show nat source rules
+run show nat destination rules
 
 # =============================================================================
 # SECTION 7: SSH SERVICE AUDIT
+# FLAG: unexpected listen addresses, auth changes
 # =============================================================================
-# >>> PASTE THIS <<<
+section "7 — SSH SERVICE AUDIT"
 
-show service ssh
-show configuration commands | grep ssh
+run show service ssh
 
 # =============================================================================
-# SECTION 8: ACTIVE CONNECTIONS & TRAFFIC
+# SECTION 8: ACTIVE CONNECTIONS (conntrack)
+# FLAG: unexpected source IPs, high session counts, unusual ports
 # =============================================================================
-# >>> PASTE THIS <<<
-# Look for suspicious connections - unexpected source IPs, weird ports
+section "8 — ACTIVE CONNECTIONS"
+echo "  FLAG: unknown source IPs, large session counts, C2 ports (4444, 1234, 8080, 9001)"
 
-show conntrack table ipv4
-show conntrack table ipv4 | head 50
+run show conntrack table ipv4
 
 # =============================================================================
 # SECTION 9: RECENT LOGS
+# FLAG: login attempts, config commits you didn't make, errors
 # =============================================================================
-# >>> PASTE THIS <<<
-# Look for login attempts, config changes, errors
+section "9 — RECENT LOGS (last 100 lines)"
 
-show log | tail 100
-show log | grep -i "login"
-show log | grep -i "commit"
-show log | grep -i "error"
-show log | grep -i "fail"
+run show log
+
+echo ""
+echo ">>> show log | grep -i login"
+show log 2>/dev/null | grep -i "login" || echo "    [none]"
+
+echo ""
+echo ">>> show log | grep -i commit"
+show log 2>/dev/null | grep -i "commit" || echo "    [none]"
+
+echo ""
+echo ">>> show log | grep -i 'authentication failure\|failed\|invalid user'"
+show log 2>/dev/null | grep -iE "authentication failure|failed|invalid user" || echo "    [none]"
 
 # =============================================================================
 # SECTION 10: SERVICE AUDIT
+# FLAG: telnet, dhcp-server, tftp-server, or any service you didn't enable
 # =============================================================================
-# >>> PASTE THIS <<<
-# Check for unauthorized services running
+section "10 — SERVICE AUDIT"
+echo "  FLAG: telnet, dhcp-server, tftp-server, or unexpected services"
 
-show configuration commands | grep service
-show configuration commands | grep server
-
-# =============================================================================
-# SECTION 11: CONFIGURATION DIFF (CHECK FOR UNAUTHORIZED CHANGES)
-# =============================================================================
-# >>> PASTE THIS <<<
-# Compare running config against saved config
-
-compare saved
-
-# Show recent config commits
-show system commit
+run show configuration commands
 
 # =============================================================================
-# SECTION 12: CONNECTIVITY TESTS TO SCORED SERVICES
+# SECTION 11: CONFIG DIFF (unauthorized changes since last save)
 # =============================================================================
-# >>> PASTE THIS <<<
-# Quick connectivity check to make sure routing works
-# These pings go through the firewalls to the internal servers
+section "11 — CONFIG DIFF (running vs saved)"
+echo "  If output is empty = no uncommitted changes."
+echo "  Any diff here = something changed without being saved (or attacker modified)"
 
-# Ping FW1 outside interface
-ping 172.16.101.254 count 2
+# compare saved must be run from within configure context
+configure
+echo ""
+echo ">>> compare saved"
+compare saved 2>&1 || echo "    [no diff or compare not available]"
+exit  # back to op mode
 
-# Ping FW2 outside interface
-ping 172.16.102.254 count 2
-
-# Ping FW1 inside interface (may or may not respond depending on PAN policy)
-ping 172.20.242.254 count 2
-
-# Ping FW2 inside interface
-ping 172.20.240.254 count 2
-
-# Ping scored services through FW1 (Linux zone)
-ping 172.20.242.20 count 2
-ping 172.20.242.30 count 2
-ping 172.20.242.40 count 2
-
-# Ping scored services through FW2 (Windows zone)
-ping 172.20.240.101 count 2
-ping 172.20.240.102 count 2
-ping 172.20.240.104 count 2
+run show system commit
 
 # =============================================================================
-# SECTION 13: FULL CONFIG DUMP (FOR BACKUP/COMPARISON)
+# SECTION 12: CONNECTIVITY TESTS
+# FLAG: any ping that should succeed returning 0% success
 # =============================================================================
-# >>> PASTE THIS (SAVE OUTPUT FOR LATER COMPARISON) <<<
+section "12 — CONNECTIVITY TESTS TO SCORED SERVICES"
+echo "  NOTE: FW/server pings may fail if PAN policy blocks ICMP — that's OK."
+echo "  Router-to-firewall outside interface pings SHOULD succeed."
 
-show configuration
-show configuration commands
+# FW outside interfaces (should always respond)
+run ping 172.16.101.254 count 3
+run ping 172.16.102.254 count 3
+
+# FW inside interfaces (depends on PAN policy)
+run ping 172.20.242.254 count 2
+run ping 172.20.240.254 count 2
+
+# Linux zone servers (VM1, VM2, VM3)
+run ping 172.20.242.30  count 2
+run ping 172.20.242.40  count 2
+run ping 172.20.242.20  count 2
+
+# Windows zone servers (VM5, VM6, VM7)
+run ping 172.20.240.102 count 2
+run ping 172.20.240.101 count 2
+run ping 172.20.240.104 count 2
 
 # =============================================================================
-# QUICK REFERENCE: WHAT TO FLAG AS SUSPICIOUS
+# SECTION 13: FULL CONFIG DUMP (save this output for comparison later)
 # =============================================================================
-# >>> DO NOT PASTE - REFERENCE ONLY <<<
-#
-# 1. Unknown user accounts (anything besides vyos, blueteam, team accounts)
-# 2. Changed IP addresses on any interface
-# 3. Missing or modified static routes
-# 4. Missing or modified NAT rules (will break scored services!)
-# 5. New or modified firewall rules you didn't create
-# 6. Unauthorized services enabled (DHCP, TFTP, DNS forwarding)
-# 7. Connections from unexpected source IPs in conntrack table
-# 8. SSH config changes (new keys, changed listen address)
-# 9. Any config diff between running and saved
-# 10. Routes to unexpected networks (potential pivot/tunnel)
-#
-# IF YOU FIND SOMETHING SUSPICIOUS:
-#   1. Screenshot/document it
-#   2. Report to team lead
-#   3. If it's a rouge user: delete system login user <name>
-#   4. If it's a bad route: delete protocols static route <route>
-#   5. If it's a bad firewall rule: delete firewall ... rule <N>
-#   6. commit && save after any fix
+section "13 — FULL CONFIG DUMP (save this for later diff)"
+
+run show configuration
+
 # =============================================================================
+# SUMMARY / WHAT TO FLAG
+# =============================================================================
+echo ""
+echo "============================================================"
+echo " AUDIT COMPLETE — $TIMESTAMP"
+echo "============================================================"
+echo ""
+echo " WHAT TO FLAG AS SUSPICIOUS:"
+echo "   1. Unknown users (expected: vyos, blueteam only)"
+echo "   2. Changed interface IPs"
+echo "   3. Missing or unexpected static routes"
+echo "   4. Missing/modified NAT rules (scored services will break!)"
+echo "   5. New or modified firewall rules"
+echo "   6. Unexpected services (telnet, dhcp, tftp)"
+echo "   7. Suspicious conntrack entries (unknown IPs, C2 ports)"
+echo "   8. SSH config changes"
+echo "   9. Config diff output — any diff = unauthorized change"
+echo "  10. Routes to unexpected networks (pivot/tunnel indicator)"
+echo ""
+echo " IF YOU FIND SOMETHING — fix it:"
+echo "   Rogue user:   configure; delete system login user <name>; commit; save"
+echo "   Bad route:    configure; delete protocols static route <prefix>; commit; save"
+echo "   Bad FW rule:  configure; delete firewall ipv4 input filter rule <N>; commit; save"
+echo ""
+echo " BLOCK A RED TEAM IP:"
+echo "   configure"
+echo "   set firewall ipv4 input filter rule 5 action drop"
+echo "   set firewall ipv4 input filter rule 5 source address X.X.X.X/32"
+echo "   set firewall ipv4 forward filter rule 5 action drop"
+echo "   set firewall ipv4 forward filter rule 5 source address X.X.X.X/32"
+echo "   commit && save"
+echo "============================================================"

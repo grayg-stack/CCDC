@@ -1,339 +1,295 @@
-#!/bin/bash
+#!/bin/vbash
 # =============================================================================
 # VM11 - VyOS Router Hardening Script
-# MACCDC 2026 - PASTE INTO VyOS CONFIGURE MODE TERMINAL
+# MACCDC 2026 - Run directly on VyOS: bash harden_vm11_vyos.sh
 # =============================================================================
 #
-# THESE ARE VyOS CLI COMMANDS, NOT BASH COMMANDS.
-# Despite the .sh extension, this file is a reference of commands to paste
-# into the VyOS configure-mode shell.
-#
-# HOW TO USE:
-#   1. SSH into VyOS: ssh vyos@172.31.21.2 (or from internal nets)
-#   2. Enter configure mode: configure
-#   3. Paste sections one at a time
-#   4. After each section: commit
-#   5. When done: save
+# USAGE:
+#   scp harden_vm11_vyos.sh vyos@172.31.21.2:~/
+#   ssh vyos@172.31.21.2
+#   bash harden_vm11_vyos.sh
 #
 # NETWORK TOPOLOGY:
 #   eth0 (external/scoring): 172.31.21.2/29
 #   eth1 (Net1 to FW1):      172.16.101.1/24
 #   eth2 (Net2 to FW2):      172.16.102.1/24
-#
-# DEFAULT CREDS: vyos:changeme
 # =============================================================================
 
+source /opt/vyatta/etc/functions/script-template
+
+# Bail on any unhandled error
+set -e
 
 # =============================================================================
-# SECTION 1: ENTER CONFIGURE MODE
+# SECTION 0: PASSWORD PROMPT
+# Get new passwords interactively before touching anything.
 # =============================================================================
-# >>> PASTE THIS <<<
+echo ""
+echo "============================================================"
+echo " VM11 VyOS Hardening — MACCDC 2026"
+echo "============================================================"
+echo ""
+echo "[*] Enter new password for the 'vyos' account:"
+read -s VYOS_PASS
+echo "[*] Confirm password:"
+read -s VYOS_PASS2
+if [ "$VYOS_PASS" != "$VYOS_PASS2" ]; then
+    echo "[!] Passwords do not match. Aborting."
+    exit 1
+fi
+if [ -z "$VYOS_PASS" ]; then
+    echo "[!] Password cannot be empty. Aborting."
+    exit 1
+fi
 
+echo ""
+echo "[*] Enter password for backup 'blueteam' admin account:"
+read -s BT_PASS
+echo "[*] Confirm password:"
+read -s BT_PASS2
+if [ "$BT_PASS" != "$BT_PASS2" ]; then
+    echo "[!] Passwords do not match. Aborting."
+    exit 1
+fi
+if [ -z "$BT_PASS" ]; then
+    echo "[!] Password cannot be empty. Aborting."
+    exit 1
+fi
+
+echo ""
+echo "[*] Passwords accepted. Starting hardening..."
+echo ""
+
+# =============================================================================
+# All configuration happens inside a single configure session.
+# =============================================================================
 configure
 
 # =============================================================================
-# SECTION 2: CREDENTIAL CHANGES (DO THIS FIRST!)
+# SECTION 1: CREDENTIALS (DO THIS FIRST)
 # =============================================================================
-# >>> PASTE THIS - CHANGE PASSWORDS BEFORE PASTING <<<
+echo "[1/7] Rotating credentials..."
 
-# Change the default vyos password IMMEDIATELY
-set system login user vyos authentication plaintext-password NEW_PASSWORD_HERE
+set system login user vyos authentication plaintext-password "$VYOS_PASS"
 
-# Create backup admin account
-set system login user blueteam authentication plaintext-password NEW_PASSWORD_HERE
+set system login user blueteam authentication plaintext-password "$BT_PASS"
 set system login user blueteam level admin
 
 commit
+echo "    [+] Passwords updated."
 
 # =============================================================================
-# SECTION 3: SYSTEM HARDENING
+# SECTION 2: SYSTEM HARDENING
 # =============================================================================
-# >>> PASTE THIS <<<
+echo "[2/7] System hardening..."
 
-# Set hostname (verify current hostname first with: show host name)
 set system host-name VM11-VyOS-Router
 
-# Set login banner
 set system login banner pre-login "AUTHORIZED USE ONLY. All activity is monitored and recorded."
 
-# Set timezone
 set system time-zone America/New_York
 
-# Configure NTP
 set service ntp server 0.pool.ntp.org
 set service ntp server 1.pool.ntp.org
 
-# Configure syslog - log to local and optionally remote
 set system syslog global facility all level info
 set system syslog global facility protocols level debug
 
-# Disable unused services (if they exist - errors are OK if not set)
-delete service telnet
-delete service dhcp-server
-delete service tftp-server
+# Delete unused services — errors here are fine if they weren't set
+delete service telnet    2>/dev/null || true
+delete service dhcp-server  2>/dev/null || true
+delete service tftp-server  2>/dev/null || true
 
 commit
+echo "    [+] System hardened."
 
 # =============================================================================
-# SECTION 4: SSH HARDENING
+# SECTION 3: SSH HARDENING
 # =============================================================================
-# >>> PASTE THIS <<<
+echo "[3/7] SSH hardening..."
 
-# SSH configuration - keep password auth (we need it for team access)
 set service ssh port 22
 set service ssh listen-address 0.0.0.0
-delete service ssh disable-password-authentication
-
-# SSH login restrictions - VyOS 1.4.x syntax
-# Limit login attempts and timeouts
+delete service ssh disable-password-authentication 2>/dev/null || true
 set service ssh client-keepalive-interval 120
 
 commit
+echo "    [+] SSH hardened."
 
 # =============================================================================
-# SECTION 5: FIREWALL - PROTECT THE ROUTER (INPUT FILTER)
+# SECTION 4: FIREWALL — INPUT FILTER (protect the router itself)
 # =============================================================================
-# This section protects the VyOS management plane (LOCAL zone).
-# VyOS 1.4.x uses the newer firewall model.
-# The Palo Altos handle zone-level filtering for LAN traffic.
-# VyOS just needs to:
-#   - Route traffic between Net1, Net2, and External
-#   - Protect itself from unauthorized management access
-#
-# >>> PASTE THIS - VyOS 1.4.x (ROLLING/SAGITTA) SYNTAX <<<
+echo "[4/7] Applying input filter (protect management plane)..."
 
-# ---- INPUT FILTER: Traffic destined TO the router itself ----
 set firewall ipv4 input filter default-action drop
 set firewall ipv4 input filter default-log
 
-# Rule 10: Accept established/related
+# Allow established/related
 set firewall ipv4 input filter rule 10 action accept
 set firewall ipv4 input filter rule 10 state established
 set firewall ipv4 input filter rule 10 state related
 set firewall ipv4 input filter rule 10 description "Allow established and related"
 
-# Rule 15: Accept ICMP (ping) - useful for diagnostics and scoring checks
+# Allow ICMP
 set firewall ipv4 input filter rule 15 action accept
 set firewall ipv4 input filter rule 15 protocol icmp
 set firewall ipv4 input filter rule 15 description "Allow ICMP"
 
-# Rule 20: Allow SSH from Net1 (Linux LAN transit)
+# SSH from Net1 transit segment (172.16.101.0/24)
 set firewall ipv4 input filter rule 20 action accept
 set firewall ipv4 input filter rule 20 protocol tcp
 set firewall ipv4 input filter rule 20 destination port 22
 set firewall ipv4 input filter rule 20 source address 172.16.101.0/24
 set firewall ipv4 input filter rule 20 description "SSH from Net1"
 
-# Rule 25: Allow SSH from Net2 (Windows LAN transit)
+# SSH from Net2 transit segment (172.16.102.0/24)
 set firewall ipv4 input filter rule 25 action accept
 set firewall ipv4 input filter rule 25 protocol tcp
 set firewall ipv4 input filter rule 25 destination port 22
 set firewall ipv4 input filter rule 25 source address 172.16.102.0/24
 set firewall ipv4 input filter rule 25 description "SSH from Net2"
 
-# Rule 30: Allow SSH from Linux LAN (through FW1)
+# SSH from Linux server LAN (behind FW1)
 set firewall ipv4 input filter rule 30 action accept
 set firewall ipv4 input filter rule 30 protocol tcp
 set firewall ipv4 input filter rule 30 destination port 22
 set firewall ipv4 input filter rule 30 source address 172.20.242.0/24
 set firewall ipv4 input filter rule 30 description "SSH from Linux LAN"
 
-# Rule 35: Allow SSH from Windows LAN (through FW2)
+# SSH from Windows server LAN (behind FW2)
 set firewall ipv4 input filter rule 35 action accept
 set firewall ipv4 input filter rule 35 protocol tcp
 set firewall ipv4 input filter rule 35 destination port 22
 set firewall ipv4 input filter rule 35 source address 172.20.240.0/24
 set firewall ipv4 input filter rule 35 description "SSH from Windows LAN"
 
-# Rule 40: Allow SSH from external/scoring (needed during competition)
+# SSH from scoring/external subnet
 set firewall ipv4 input filter rule 40 action accept
 set firewall ipv4 input filter rule 40 protocol tcp
 set firewall ipv4 input filter rule 40 destination port 22
 set firewall ipv4 input filter rule 40 source address 172.31.21.0/29
 set firewall ipv4 input filter rule 40 description "SSH from scoring subnet"
 
-# Rule 50: Allow NTP responses to router
+# NTP responses
 set firewall ipv4 input filter rule 50 action accept
 set firewall ipv4 input filter rule 50 protocol udp
 set firewall ipv4 input filter rule 50 source port 123
 set firewall ipv4 input filter rule 50 description "NTP responses"
 
-# Rule 60: Allow DNS responses to router
+# DNS responses
 set firewall ipv4 input filter rule 60 action accept
 set firewall ipv4 input filter rule 60 protocol udp
 set firewall ipv4 input filter rule 60 source port 53
 set firewall ipv4 input filter rule 60 description "DNS responses"
 
-# Rule 999: Drop and log everything else (explicit - default already drops)
+# Explicit drop + log everything else
 set firewall ipv4 input filter rule 999 action drop
 set firewall ipv4 input filter rule 999 log
 set firewall ipv4 input filter rule 999 description "Drop all other input"
 
 commit
+echo "    [+] Input filter applied."
 
-# ---- FORWARD FILTER: Traffic transiting THROUGH the router ----
-# We must allow traffic through for scored services!
-# The Palo Altos do the real filtering. VyOS just routes.
+# =============================================================================
+# SECTION 5: FIREWALL — FORWARD FILTER (transit traffic through router)
+# Keep open — Palo Altos handle zone filtering. Dropping here breaks scoring.
+# =============================================================================
+echo "[5/7] Applying forward filter (transit — keep open for scoring)..."
 
 set firewall ipv4 forward filter default-action accept
 set firewall ipv4 forward filter default-log
+
 set firewall ipv4 forward filter rule 10 action accept
 set firewall ipv4 forward filter rule 10 state established
 set firewall ipv4 forward filter rule 10 state related
 set firewall ipv4 forward filter rule 10 description "Allow established/related forward"
 
-# Rule 999: Log everything else that gets forwarded (but still accept)
-# We keep forward open because Palo Altos handle filtering
-# If we drop here, scored services will break
 set firewall ipv4 forward filter rule 999 action accept
 set firewall ipv4 forward filter rule 999 log
 set firewall ipv4 forward filter rule 999 description "Accept and log all forwarded traffic"
 
 commit
+echo "    [+] Forward filter applied."
 
-# ---- OUTPUT FILTER: Traffic FROM the router ----
+# =============================================================================
+# SECTION 6: FIREWALL — OUTPUT FILTER (traffic originating FROM router)
+# =============================================================================
+echo "[6/7] Applying output filter..."
+
 set firewall ipv4 output filter default-action accept
+
 set firewall ipv4 output filter rule 10 action accept
 set firewall ipv4 output filter rule 10 state established
 set firewall ipv4 output filter rule 10 state related
 set firewall ipv4 output filter rule 10 description "Allow established/related outbound"
 
 commit
+echo "    [+] Output filter applied."
 
 # =============================================================================
-# SECTION 5-ALT: FIREWALL - VyOS 1.3.x (EQUULEUS) LEGACY SYNTAX
+# SECTION 7: SAVE
 # =============================================================================
-# >>> DO NOT PASTE - REFERENCE ONLY <<<
-# If the 1.4.x syntax above fails, the router may be running 1.3.x.
-# Use these commands instead:
-#
-# set firewall name WAN-LOCAL default-action drop
-# set firewall name WAN-LOCAL rule 10 action accept
-# set firewall name WAN-LOCAL rule 10 state established enable
-# set firewall name WAN-LOCAL rule 10 state related enable
-# set firewall name WAN-LOCAL rule 20 action accept
-# set firewall name WAN-LOCAL rule 20 protocol tcp
-# set firewall name WAN-LOCAL rule 20 destination port 22
-# set firewall name WAN-LOCAL rule 20 source address 172.16.101.0/24
-# set firewall name WAN-LOCAL rule 25 action accept
-# set firewall name WAN-LOCAL rule 25 protocol tcp
-# set firewall name WAN-LOCAL rule 25 destination port 22
-# set firewall name WAN-LOCAL rule 25 source address 172.16.102.0/24
-# set firewall name WAN-LOCAL rule 30 action accept
-# set firewall name WAN-LOCAL rule 30 protocol icmp
-# set firewall name WAN-LOCAL rule 40 action accept
-# set firewall name WAN-LOCAL rule 40 protocol tcp
-# set firewall name WAN-LOCAL rule 40 destination port 22
-# set firewall name WAN-LOCAL rule 40 source address 172.31.21.0/29
-#
-# Apply to external interface (check interface name - might be eth0):
-# set firewall interface eth0 local name WAN-LOCAL
-#
-# For transit traffic (keep open - Palo Altos filter):
-# set firewall name TRANSIT default-action accept
-# set firewall interface eth0 in name TRANSIT
-#
-# commit
-# save
-
-# =============================================================================
-# SECTION 6: NAT VERIFICATION
-# =============================================================================
-# >>> DO NOT PASTE - REFERENCE ONLY <<<
-# NAT rules should already exist to route external traffic to internal servers.
-# VERIFY these exist before changing anything! Run in operational mode:
-#
-#   show nat destination rules
-#   show nat source rules
-#
-# Expected DNAT rules (external IPs -> internal servers through firewalls):
-# The scoring engine hits external IPs which must DNAT to internal servers.
-# DO NOT DELETE ANY NAT RULES without understanding what they do!
-#
-# If NAT rules are missing, scored services will fail.
-# Example DNAT syntax (DO NOT paste unless confirmed missing):
-#
-# set nat destination rule 10 inbound-interface name eth0
-# set nat destination rule 10 destination address <EXTERNAL_VIP>
-# set nat destination rule 10 protocol tcp
-# set nat destination rule 10 destination port 80,443
-# set nat destination rule 10 translation address 172.16.101.254
-# ... (traffic goes to FW1 which then forwards to actual server)
-
-# =============================================================================
-# SECTION 7: ROUTING VERIFICATION
-# =============================================================================
-# >>> DO NOT PASTE - REFERENCE ONLY <<<
-# Run these in operational mode to verify routing:
-#
-#   show ip route
-#
-# Expected routes:
-#   172.31.21.0/29   - directly connected (eth0/external)
-#   172.16.101.0/24  - directly connected (eth1/Net1)
-#   172.16.102.0/24  - directly connected (eth2/Net2)
-#   172.20.242.0/24  - via 172.16.101.254 (FW1 inside network)
-#   172.20.240.0/24  - via 172.16.102.254 (FW2 inside network)
-#   0.0.0.0/0        - default route (via scoring/internet gateway)
-#
-# If routes to 172.20.x.x subnets are missing, add them:
-#   set protocols static route 172.20.242.0/24 next-hop 172.16.101.254
-#   set protocols static route 172.20.240.0/24 next-hop 172.16.102.254
-
-# =============================================================================
-# SECTION 8: SAVE CONFIGURATION
-# =============================================================================
-# >>> PASTE THIS <<<
-
-commit
+echo "[7/7] Saving configuration..."
 save
+echo "    [+] Configuration saved."
+
+exit  # exit configure mode
 
 # =============================================================================
-# SECTION 9: VERIFICATION COMMANDS (RUN IN OPERATIONAL MODE)
+# POST-HARDENING VERIFICATION (op-mode)
 # =============================================================================
-# >>> EXIT CONFIGURE MODE FIRST: exit <<<
+echo ""
+echo "============================================================"
+echo " Hardening complete. Running verification checks..."
+echo "============================================================"
+echo ""
 
-exit
-
-show firewall
-show firewall ipv4 input filter
-show firewall ipv4 forward filter
-show firewall ipv4 output filter
+echo "--- INTERFACES ---"
 show interfaces
-show ip route
-show service ssh
-show system login
-show configuration commands | grep user
-show nat destination rules
-show nat source rules
-show version
-show system uptime
 
-# =============================================================================
-# EMERGENCY: IF FIREWALL LOCKS YOU OUT
-# =============================================================================
-# >>> DO NOT PASTE - REFERENCE ONLY <<<
-# If the input filter locks you out, you need console access via NETLAB.
-# From console:
-#   configure
-#   delete firewall ipv4 input filter
-#   commit
-#   save
-# Then re-apply firewall rules carefully.
-#
-# =============================================================================
-# INCIDENT RESPONSE: BLOCK A SPECIFIC MALICIOUS IP
-# =============================================================================
-# >>> MODIFY AND PASTE AS NEEDED <<<
-# To block a confirmed malicious /32 IP (ONLY /32 per competition rules):
-#
-#   configure
-#   set firewall ipv4 input filter rule 5 action drop
-#   set firewall ipv4 input filter rule 5 source address X.X.X.X/32
-#   set firewall ipv4 input filter rule 5 description "Block malicious IP"
-#   set firewall ipv4 forward filter rule 5 action drop
-#   set firewall ipv4 forward filter rule 5 source address X.X.X.X/32
-#   set firewall ipv4 forward filter rule 5 description "Block malicious IP forward"
-#   commit
-#   save
-# =============================================================================
+echo ""
+echo "--- ROUTING TABLE ---"
+show ip route
+
+echo ""
+echo "--- FIREWALL INPUT FILTER ---"
+show firewall ipv4 input filter
+
+echo ""
+echo "--- FIREWALL FORWARD FILTER ---"
+show firewall ipv4 forward filter
+
+echo ""
+echo "--- SSH SERVICE ---"
+show service ssh
+
+echo ""
+echo "--- SYSTEM LOGIN USERS ---"
+show system login
+
+echo ""
+echo "--- NAT SOURCE RULES ---"
+show nat source rules
+
+echo ""
+echo "--- NAT DESTINATION RULES ---"
+show nat destination rules
+
+echo ""
+echo "============================================================"
+echo " All done. Verify the above output looks correct."
+echo ""
+echo " EMERGENCY — if input filter locks you out:"
+echo "   Use NETLAB console access, then:"
+echo "   configure"
+echo "   delete firewall ipv4 input filter"
+echo "   commit && save"
+echo ""
+echo " BLOCK A RED TEAM IP (run manually):"
+echo "   configure"
+echo "   set firewall ipv4 input filter rule 5 action drop"
+echo "   set firewall ipv4 input filter rule 5 source address X.X.X.X/32"
+echo "   set firewall ipv4 forward filter rule 5 action drop"
+echo "   set firewall ipv4 forward filter rule 5 source address X.X.X.X/32"
+echo "   commit && save"
+echo "============================================================"
